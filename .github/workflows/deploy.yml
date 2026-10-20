@@ -1,0 +1,36 @@
+name: Deploy Grumpy Lambda
+
+# WHEN to run: every push to main, plus a manual "Run workflow" button in the Actions tab
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# What the workflow's GitHub token may do
+permissions:
+  id-token: write   # allows requesting the OIDC token that AWS will verify
+  contents: read    # allows checking out the repo's code
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest   # a fresh GitHub-hosted Linux VM, thrown away afterwards
+    steps:
+      # 1. Copy the repo's code onto the runner
+      - uses: actions/checkout@v5
+
+      # 2. Trade GitHub's OIDC token for short-lived AWS credentials by assuming our role
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::112347476850:role/github-actions-grumpy-lambda
+          aws-region: us-east-2
+
+      # 3. Lambda takes code as a .zip
+      - name: Package
+        run: zip function.zip lambda_function.py
+
+      # 4. Upload the zip, then wait until AWS finishes swapping in the new code
+      - name: Deploy
+        run: |
+          aws lambda update-function-code --function-name grumpy-lambda --zip-file fileb://function.zip --query '{Updated:LastModified,Size:CodeSize}'
+          aws lambda wait function-updated --function-name grumpy-lambda
+          echo "Deployed! Go wake it up."
